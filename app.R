@@ -209,13 +209,13 @@ ui <- fluidPage(
   mainPanel(width=12, 
     tabsetPanel(id = "gameTabs", type = "pills", 
       ## Gameboard Tab ---- 
-      tabPanel(title="Gameboard",
+      tabPanel(title="Game",
                column(width=8, align = "center", 
                       fluidRow(
                         strong("Points: "), 
                         textOutput(outputId = "pointsText", inline = T)
                       ),
-                      plotOutput("gameBoard",
+                      plotOutput("gameBoard", height=300,
                                  click = "plot_click"),
                       fluidRow(
                         actionButton("deleteBtn",  "Delete",  style="padding: 20px 16px; margin: 8px"),
@@ -226,7 +226,7 @@ ui <- fluidPage(
                )
       ),
       ## Found Words Tab ---- 
-      tabPanel(title="Found Words",
+      tabPanel(title="My Words",
                p(),
                tableOutput(outputId = "foundWordsTable")
       ),
@@ -260,11 +260,13 @@ server <- function(session, input, output) {
 
   
   # Gameboard UI ---- 
+  ## Current Word ----
   output$myWord <- renderUI({
     # oh my word!
     tags$h1(local_vals$current_word)
   })
   
+  ## Current Points ---- 
   output$pointsText <- renderText({
     local_vals$found_points <- sum(local_vals$found_words$points)
     local_vals$found_points
@@ -272,6 +274,7 @@ server <- function(session, input, output) {
     # TODO: display X/Y points (%)
   })
   
+  ## Game Plot
   output$gameBoard <- renderPlot({
     
     dat_plot <- assign_coordinates(local_vals$current_letters)
@@ -414,7 +417,7 @@ server <- function(session, input, output) {
     local_vals$current_word <- ""
     local_vals$found_words = data.frame(word = NULL, points = NULL)
     local_vals$found_points = 0
-    updateTabsetPanel(session, "gameTabs", selected = "Gameboard")
+    updateTabsetPanel(session, "gameTabs", selected = "Game")
   })
 
   
@@ -430,7 +433,7 @@ server <- function(session, input, output) {
     local_vals$found_words = data.frame(word = NULL, points = NULL)
     local_vals$found_points = 0
     updateTextInput(inputId = "manualLetters", value="")
-    updateTabsetPanel(session, "gameTabs", selected = "Gameboard")
+    updateTabsetPanel(session, "gameTabs", selected = "Game")
     
   })
   
@@ -450,7 +453,7 @@ server <- function(session, input, output) {
     local_vals$found_words = data.frame(word = NULL, points = NULL)
     local_vals$found_points = 0
     updateTextInput(inputId = "manualLetters", value="")
-    updateTabsetPanel(session, "gameTabs", selected = "Gameboard")
+    updateTabsetPanel(session, "gameTabs", selected = "Game")
     
   })
 }

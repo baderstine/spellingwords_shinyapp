@@ -9,8 +9,6 @@ library(DT)
 library(words) 
 
 # TODO:
-# calculate and display total points possible
-# All Words loading spinner? or just make the code faster
 # settings button (Hard Mode: disables "All Words" tab OR removes the "word" column)
 # user stats history of games played : 
 #   (date of game, starting letters, required letter, # words found, # points, % of possible points)
@@ -146,15 +144,20 @@ get_all_words_table <- function(x, found_words) {
   
   # find words that use (1) the required letter, and (2) any subset of only these letters
   all_words %>%
+    mutate(letter1 = grepl(chk_letters[1], letters, fixed=T),
+           letter2 = grepl(chk_letters[2], letters, fixed=T),
+           letter3 = grepl(chk_letters[3], letters, fixed=T),
+           letter4 = grepl(chk_letters[4], letters, fixed=T),
+           letter5 = grepl(chk_letters[5], letters, fixed=T),
+           letter6 = grepl(chk_letters[6], letters, fixed=T),
+           letter7 = grepl(chk_letters[7], letters, fixed=T)) %>%
     filter(grepl(req_letter, letters, fixed=T)) %>%
-    filter(sapply(letters, 
-                  function(x) all(sapply(strsplit(x,"")[[1]], 
-                                         function(l) grepl(l, paste0(chk_letters, collapse = ""))))
-    )) %>% 
-    mutate(septagram = if_else(word %in% septagrams, "✓", ""),
+    filter(rowSums(across(4:10)) == nchar(letters)) %>%
+    mutate(points = get_word_points(word),
+           septagram = if_else(word %in% septagrams, "✓", ""),
            found = if_else(word %in% found_words, "✓", "")) %>%
     arrange(-word_length, word) %>%
-    select(-letters)
+    select(-starts_with("letter"))
 }
 
 check_submitted_letters <- function(x) {
@@ -192,18 +195,13 @@ check_submitted_letters <- function(x) {
 
 # UI ---- 
 ui <- fluidPage(
-  # bug: causes odd selection artifacts so don't use
-  # tags$script('
-  #   $(document).on("keypress", function (e) {
-  #     if(e.keyCode == 13){
-  #       Shiny.setInputValue("submitBtn", 1, {priority: "event"});
-  #     }
-  #     if(e.keyCode == 8 | e.keyCode == 46){
-  #       Shiny.setInputValue("deleteBtn", 1, {priority: "event"});
-  #     }
-  #   });
-  # '), 
-  
+  # disable double tap to zoom on mobile
+  tags$head(
+    tags$style(HTML("
+      .tab-pane {
+        touch-action: manipulation; 
+      }"))
+  ),  
   titlePanel("Spelling Words"),
   
   mainPanel(width=12, 
@@ -212,7 +210,9 @@ ui <- fluidPage(
       tabPanel(title="Game",
                column(width=8, align = "center", 
                       fluidRow(
-                        strong("Points: "), 
+                        strong("Words: "),
+                        textOutput(outputId = "wordsText", inline = T),
+                        strong("Points: ", style = "margin-left: 10px"), 
                         textOutput(outputId = "pointsText", inline = T)
                       ),
                       plotOutput("gameBoard", height=300,
@@ -225,14 +225,18 @@ ui <- fluidPage(
                       uiOutput("myWord")
                )
       ),
-      ## Found Words Tab ---- 
-      tabPanel(title="My Words",
-               p(),
-               tableOutput(outputId = "foundWordsTable")
-      ),
-      ## All Words Tab ---- 
-      tabPanel(title="All Words",
-               DT::dataTableOutput("allWordsTable")
+      ## Words Tab ---- 
+      tabPanel(title = "Words", 
+        p(),
+        tabsetPanel(id = "wordsTabs", type="pills",
+          tabPanel(title="My Words",
+                   p(),
+                   DT::dataTableOutput(outputId = "foundWordsTable")
+          ),
+          tabPanel(title="All Words",
+                   DT::dataTableOutput(outputId = "allWordsTable")
+          )
+        )
       ),
       ## New Game Tab ---- 
       tabPanel(title = "New Game",
@@ -255,28 +259,39 @@ server <- function(session, input, output) {
   # local session values ----
   local_vals <- reactiveValues(current_word = "",
                                current_letters = rotate_letters(get_letters()),
-                               found_words = data.frame(word = NULL, points = NULL),
-                               found_points = 0)
-
+                               found_words = data.frame(word = NULL, points = NULL)
+  )
+  
+  all_words_table <- reactive({ 
+    get_all_words_table(local_vals$current_letters, local_vals$found_words$word) %>%
+      tibble::rowid_to_column(var="row") 
+  }) 
   
   # Gameboard UI ---- 
   ## Current Word ----
   output$myWord <- renderUI({
     # oh my word!
-    tags$h1(local_vals$current_word)
+    tags$h2(local_vals$current_word)
+  })
+  
+  ## Current Words (#) ----
+  output$wordsText <- renderText({
+    num_words_found <- nrow(local_vals$found_words)
+    num_words_all <- nrow(all_words_table())
+    paste0(num_words_found, " of ", num_words_all, 
+           " (", round(num_words_found/num_words_all*100), "%)")
   })
   
   ## Current Points ---- 
   output$pointsText <- renderText({
-    local_vals$found_points <- sum(local_vals$found_words$points)
-    local_vals$found_points
-    
-    # TODO: display X/Y points (%)
+    my_pts <- sum(local_vals$found_words$points)
+    max_pts <- sum(all_words_table()$points)
+    paste0(my_pts, " of ", max_pts, 
+           " (", if_else(max_pts == 0, 0, round(my_pts/max_pts*100)), "%)")
   })
   
   ## Game Plot
   output$gameBoard <- renderPlot({
-    
     dat_plot <- assign_coordinates(local_vals$current_letters)
     
     ggplot(dat_plot) +
@@ -397,15 +412,16 @@ server <- function(session, input, output) {
   
   
   # Found Words UI ---- 
-  output$foundWordsTable <- renderTable({
-    local_vals$found_words
-  })
+  output$foundWordsTable <- DT::renderDataTable({
+    local_vals$found_words %>%
+      tibble::rowid_to_column(var="row")
+  }, options = list(paging = F), rownames = F)
   
 
   # All Words UI ---- 
   output$allWordsTable <- DT::renderDataTable({ 
-    get_all_words_table(local_vals$current_letters, local_vals$found_words$word) %>%
-      tibble::rowid_to_column() 
+    all_words_table() %>%
+      select(-word_length)
   }, options = list(paging = F), rownames = F)
   
 
@@ -416,7 +432,6 @@ server <- function(session, input, output) {
     local_vals$current_letters <- rotate_letters(get_letters())
     local_vals$current_word <- ""
     local_vals$found_words = data.frame(word = NULL, points = NULL)
-    local_vals$found_points = 0
     updateTabsetPanel(session, "gameTabs", selected = "Game")
   })
 
@@ -431,7 +446,6 @@ server <- function(session, input, output) {
     local_vals$current_letters <- get_letters(result)
     local_vals$current_word <- ""
     local_vals$found_words = data.frame(word = NULL, points = NULL)
-    local_vals$found_points = 0
     updateTextInput(inputId = "manualLetters", value="")
     updateTabsetPanel(session, "gameTabs", selected = "Game")
     
@@ -451,7 +465,6 @@ server <- function(session, input, output) {
                                                          collapse=""))
     local_vals$current_word <- ""
     local_vals$found_words = data.frame(word = NULL, points = NULL)
-    local_vals$found_points = 0
     updateTextInput(inputId = "manualLetters", value="")
     updateTabsetPanel(session, "gameTabs", selected = "Game")
     
